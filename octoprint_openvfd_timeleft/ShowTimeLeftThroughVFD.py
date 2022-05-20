@@ -21,13 +21,13 @@ class DISPLAY_MODE(IntEnum):
 
 class c_time_date:
     def __init__(self):
-        self.sec: int = 5
-        self.min : int = 10
-        self.hrs : int = 12
+        self.sec: int = 0
+        self.min : int = 0
+        self.hrs : int = 0
         self.dofw : int = 1
         self.day : int = 1
         self.month : int = 1
-        self.year : int = 8
+        self.year : int = 1
     def to_bytes(self) -> bytes:
         return pack('BBBBBBH', self.sec ,self.min, self.hrs, self.dofw, self.day, self.month, self.year)
 
@@ -81,7 +81,7 @@ class ShowTimeLeftThroughVFD (octoprint.plugin.StartupPlugin, octoprint.plugin.E
 
     def sendToDisplay(self)-> None:
         self.openvfd.write(self.data.to_bytes())
-        self._logger.debug("sendToDisplay end")
+        self._logger.debug("sent To Display")
 
     def __del__(self):
         if self.openvfd is not None and not self.openvfd.closed:
@@ -91,30 +91,43 @@ class ShowTimeLeftThroughVFD (octoprint.plugin.StartupPlugin, octoprint.plugin.E
     def on_printer_send_current_data(self, data):
         self._logger.debug(data['progress'])
         if data['progress']['printTimeLeft'] is not None:
-            new_hrs: int = data['progress']['printTimeLeft'] // 3600
-            new_min: int = (data['progress']['printTimeLeft']  - new_hrs * 3600) // 60
+            if data['progress']['printTimeLeft']  > 3600: # more then one hour then show hours and minutes
+                new_hrs: int = data['progress']['printTimeLeft'] // 3600
+                new_min: int = (data['progress']['printTimeLeft']  - new_hrs * 3600) // 60
+            else: # show minutes and seconds and  blink of colon_on
+                new_hrs: int = data['progress']['printTimeLeft'] // 60
+                new_min: int = (data['progress']['printTimeLeft']  - new_hrs * 60) 
             self._logger.info("hrs: old={} new={}, min: old={}, new={}".format(self.data.time_date.hrs, new_hrs, self.data.time_date.min, new_min ))
             if self.data.time_date.hrs != new_hrs or self.data.time_date.min != new_min:
-                self.data.mode = DISPLAY_MODE.PLAYBACK_TIME
+                #self.data.mode = DISPLAY_MODE.PLAYBACK_TIME
                 self.data.time_date.hrs = new_hrs
                 self.data.time_date.min = new_min
+                if data['progress']['printTimeLeft'] < 3600: #blink of colon_on
+                    self.data.colon_on = new_min % 2
+                else:
+                    self.data.colon_on = 1
 
                 self._logger.info("change dusplayed playback value:{}:{} ({} sec)".format(new_hrs, new_min, data['progress']['printTimeLeft']))
                 self.sendToDisplay()
 
 
 
-    def on_event(self, event, payload):
+    def on_event(self, event, payload) -> None:
         self._logger.debug("event:{}".format(event))
         if event in ("PrintFailed","PrintDone", "PrintCancelled"):
-            self._logger.info("event:{}".format(event))
             self.data.mode  = DISPLAY_MODE.CLOCK
             self._logger.info("change dusplay mode to CLOCK by event:{}".format(event))
             self.sendToDisplay()
+        if event in ("PrintStarted"):
+            self.data.mode  = DISPLAY_MODE.PLAYBACK_TIME
+            self._logger.info("change dusplay mode to PLAYBACK_TIME by event:{}".format(event))
+            self.sendToDisplay()
+
 
 __plugin_name__ = "OpenVFD timeleft plugin"
 __plugin_pythoncompat__ = ">=3.7,<4"
 __plugin_version__ = "0.0.1"
+__plugin_description__ = "Pluggin is for to display time left of a print process on LCD display through OpenVFD service"
 
 
 def __plugin_load__():
